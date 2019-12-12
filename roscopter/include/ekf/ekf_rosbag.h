@@ -12,7 +12,8 @@
 #include "roscopter_utils/progress_bar.h"
 #include "roscopter_utils/gnss.h"
 
-namespace roscopter::ekf
+namespace roscopter{
+  namespace ekf
 {
 
 class ROSbagParser
@@ -65,6 +66,5 @@ private:
     Logger truth_log_;
     Logger imu_log_;
 };
-
 }
-
+}

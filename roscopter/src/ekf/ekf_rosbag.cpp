@@ -2,7 +2,8 @@
 
 using namespace Eigen;
 using namespace std;
-namespace roscopter::ekf
+namespace roscopter{
+  namespace ekf
 {
 
 ROSbagParser::ROSbagParser(int argc, char** argv)
@@ -120,7 +121,7 @@ void ROSbagParser::parseBag()
 
 
 
-}
+}}
 
 
 int main(int argc, char** argv)

@@ -5,7 +5,8 @@ using namespace xform;
 using namespace quat;
 using namespace std;
 
-namespace roscopter::ekf
+namespace roscopter{
+  namespace ekf
 {
 
 ErrorState::ErrorState() :
@@ -268,4 +269,4 @@ StateBuf::Snapshot& StateBuf::begin()
 {
     return buf[tail];
 }
-}
+}}
