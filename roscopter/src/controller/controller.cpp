@@ -21,6 +21,7 @@ Controller::Controller() :
   max_accel_xy_ = sin(acos(throttle_eq_)) / throttle_eq_ / sqrt(2.);
 
   is_flying_ = false;
+  armed_ = false;
   received_cmd_ = false;
 
   nh_private_.getParam("max_roll", max_.roll);
@@ -106,14 +107,36 @@ void Controller::isFlyingCallback(const std_msgs::BoolConstPtr &msg)
 
 void Controller::statusCallback(const rosflight_msgs::StatusConstPtr &msg)
 {
-  armed_ = msg->armed;
+//  armed_ = msg->armed;
+//  if (!armed_)
+//      received_cmd_ = false;
 }
 
 
 void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
 {
+    armed_ = (msg->ignore != 8);
+    if (!armed_)
+    {
+        command_.F = 0.0;
+        command_.x = 0.0;
+        command_.y = 0.0;
+        command_.z = 0.0;
+        command_.ignore = 8;
+        publishCommand();
+        received_cmd_ = false;
+        return;
+    }
+
   switch(msg->mode)
   {
+    case rosflight_msgs::Command::MODE_PITCH_YVEL_YAW_ALTITUDE:
+      xc_.theta = static_cast<double>(msg->x);
+      xc_.y_dot = static_cast<double>(msg->y);
+      xc_.pd = static_cast<double>(-msg->F);
+      xc_.psi = static_cast<double>(msg->z);
+      control_mode_ = static_cast<uint8_t>(msg->mode);
+      break;
     case rosflight_msgs::Command::MODE_XPOS_YPOS_YAW_ALTITUDE:
       xc_.pn = msg->x;
       xc_.pe = msg->y;
@@ -143,6 +166,7 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
 
   if (!received_cmd_)
     received_cmd_ = true;
+
 }
 
 void Controller::reconfigure_callback(roscopter::ControllerConfig& config,
@@ -215,6 +239,51 @@ void Controller::computeControl(double dt)
   }
 
   uint8_t mode_flag = control_mode_;
+
+  if (mode_flag == rosflight_msgs::Command::MODE_PITCH_YVEL_YAW_ALTITUDE)
+  {
+      // Compute desired accelerations (in terms of g's) in the vehicle 1 frame
+      // Rotate body frame velocities to vehicle 1 frame velocities
+      double sinp = sin(xhat_.phi);
+      double cosp = cos(xhat_.phi);
+      double sint = sin(xhat_.theta);
+      double cost = cos(xhat_.theta);
+      double pydot = cosp * xhat_.v - sinp * xhat_.w;
+      double pddot =
+          -sint * xhat_.u + sinp * cost * xhat_.v + cosp * cost * xhat_.w;
+
+      /// Calculate desired yaw rate
+      // First, determine the shortest direction to the commanded psi
+      if(fabs(xc_.psi + 2*M_PI - xhat_.psi) < fabs(xc_.psi - xhat_.psi))
+      {
+        xc_.psi += 2*M_PI;
+      }
+      else if (fabs(xc_.psi - 2*M_PI -xhat_.psi) < fabs(xc_.psi - xhat_.psi))
+      {
+        xc_.psi -= 2*M_PI;
+      }
+      xc_.r = PID_psi_.computePID(xc_.psi, xhat_.psi, dt);
+
+      /// Get commanded accelerations
+      xc_.ax = 0.0;
+      xc_.ay = PID_y_dot_.computePID(xc_.y_dot, pydot, dt);
+      double pddot_c = PID_d_.computePID(xc_.pd, xhat_.pd, dt, pddot);
+      xc_.az = PID_z_dot_.computePID(pddot_c, pddot, dt);
+
+      /// Get commanded phi and throttle from the total commanded acceleration
+      // Model inversion (m[ax;ay;az] = m[0;0;g] + R'[0;0;-T]
+      double total_acc_c = sqrt((1.0 - xc_.az) * (1.0 - xc_.az) +
+                                xc_.ax * xc_.ax + xc_.ay * xc_.ay);  // (in g's)
+      if (total_acc_c > 0.001)
+        xc_.phi = asin(xc_.ay / total_acc_c);
+      else
+        xc_.phi = 0;
+
+      // Compute desired thrust based on current pose
+      xc_.throttle = (1.0 - xc_.az) * throttle_eq_ / cosp / cost;
+
+      mode_flag = rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE;
+  }
 
   if(mode_flag == rosflight_msgs::Command::MODE_XPOS_YPOS_YAW_ALTITUDE)
   {
@@ -296,6 +365,10 @@ void Controller::computeControl(double dt)
     command_.x = saturate(xc_.phi, max_.roll, -max_.roll);
     command_.y = saturate(xc_.theta, max_.pitch, -max_.pitch);
     command_.z = saturate(xc_.r, max_.yaw_rate, -max_.yaw_rate);
+    if (armed_)
+        command_.ignore = 0;
+    else
+        command_.ignore = 8;
 
     if (-xhat_.pd < min_altitude_)
     {
