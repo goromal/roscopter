@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(roscopter)
 
+set(CMAKE_CXX_STANDARD 14)
+
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
@@ -51,8 +53,8 @@ add_definitions(-DROSCOPTER_DIR="${CMAKE_CURRENT_LIST_DIR}")
 ## Build ##
 ###########
 
-include_directories(include 
-  ${EIGEN3_INCLUDE_DIRS} 
+include_directories(include
+  ${EIGEN3_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
   )
 message (STATUS "catkin include dirs" ${catkin_INCLUDE_DIRS})
@@ -63,7 +65,7 @@ add_executable(controller
   src/controller/controller.cpp
   include/controller/controller.h
   src/controller/simple_pid.cpp)
-add_dependencies(controller ${catkin_EXPORTED_TARGETS})
+add_dependencies(controller ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(controller ${catkin_LIBRARIES})
 
 add_library(ekf
