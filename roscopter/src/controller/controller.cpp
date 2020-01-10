@@ -90,6 +90,7 @@ void Controller::stateCallback(const nav_msgs::OdometryConstPtr &msg)
   {
     ROS_WARN_ONCE("CONTROLLER ACTIVE");
     computeControl(dt);
+//    std::cout << "CASE 2" << std::endl;
     publishCommand();
   }
   else
@@ -103,6 +104,8 @@ void Controller::stateCallback(const nav_msgs::OdometryConstPtr &msg)
 void Controller::isFlyingCallback(const std_msgs::BoolConstPtr &msg)
 {
   is_flying_ = msg->data;
+  if (is_flying_)
+      std::cout << "WE'RE FLYING" << std::endl;
 }
 
 void Controller::statusCallback(const rosflight_msgs::StatusConstPtr &msg)
@@ -123,6 +126,7 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
         command_.y = 0.0;
         command_.z = 0.0;
         command_.ignore = 8;
+//        std::cout << "CASE 1" << std::endl;
         publishCommand();
         received_cmd_ = false;
         return;
@@ -138,24 +142,25 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
       control_mode_ = static_cast<uint8_t>(msg->mode);
       break;
     case rosflight_msgs::Command::MODE_XPOS_YPOS_YAW_ALTITUDE:
-      xc_.pn = msg->x;
-      xc_.pe = msg->y;
-      xc_.pd = -msg->F;
-      xc_.psi = msg->z;
+//      std::cout << "WENT HERE" << std::endl;
+      xc_.pn = static_cast<double>(msg->x);
+      xc_.pe = static_cast<double>(msg->y);
+      xc_.pd = static_cast<double>(-msg->F);
+      xc_.psi = static_cast<double>(msg->z);
       control_mode_ = msg->mode;
       break;
     case rosflight_msgs::Command::MODE_XVEL_YVEL_YAWRATE_ALTITUDE:
-      xc_.x_dot = msg->x;
-      xc_.y_dot = msg->y;
-      xc_.pd = -msg->F;
-      xc_.r = msg->z;
+      xc_.x_dot = static_cast<double>(msg->x);
+      xc_.y_dot = static_cast<double>(msg->y);
+      xc_.pd = static_cast<double>(-msg->F);
+      xc_.r = static_cast<double>(msg->z);
       control_mode_ = msg->mode;
       break;
     case rosflight_msgs::Command::MODE_XACC_YACC_YAWRATE_AZ:
-      xc_.ax = msg->x;
-      xc_.ay = msg->y;
-      xc_.az = msg->F;
-      xc_.r = msg->z;
+      xc_.ax = static_cast<double>(msg->x);
+      xc_.ay = static_cast<double>(msg->y);
+      xc_.az = static_cast<double>(msg->F);
+      xc_.r = static_cast<double>(msg->z);
       control_mode_ = msg->mode;
       break;
     default:
@@ -381,6 +386,7 @@ void Controller::computeControl(double dt)
 
 void Controller::publishCommand()
 {
+//    std::cout << "ROSCOPTER publish COMMAND" << std::endl;
   command_.header.stamp = ros::Time::now();
   command_pub_.publish(command_);
 }

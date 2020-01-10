@@ -126,7 +126,12 @@ void EKF::propagate(const double &t, const Vector6d &imu, const Matrix6d &R)
   }
 
   double dt = t - x().t;
-  assert(dt >= 0);
+//  assert(dt >= 0);
+  if (dt < 0)
+  {
+      std::cout << "WHOA, dt = " << dt << " < 0. Watch out..." << std::endl;
+      return;
+  }
   if (dt < 1e-6)
     return;
 
@@ -614,12 +619,13 @@ void EKF::setGroundTempPressure(const double& temp, const double& press)
 
 void EKF::checkIsFlying()
 {
-  bool okay_to_check = enable_arm_check_ ? armed_ : true;
-  if (okay_to_check && x().a.norm() > is_flying_threshold_)
-  {
-    std::cout << "Now Flying!  Go Go Go!" << std::endl;
     is_flying_ = true;
-  }
+//  bool okay_to_check = enable_arm_check_ ? armed_ : true;
+//  if (okay_to_check && x().a.norm() > is_flying_threshold_)
+//  {
+//    std::cout << "Now Flying!  Go Go Go!" << std::endl;
+//    is_flying_ = true;
+//  }
 }
 
 
