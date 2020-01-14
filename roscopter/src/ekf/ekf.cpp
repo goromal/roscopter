@@ -113,7 +113,7 @@ void EKF::initialize(double t)
     x().ref = 0.;
   x().a = -gravity;
   x().w.setZero();
-  is_flying_ = false;
+  is_flying_ = true;
   armed_ = false;
 }
 

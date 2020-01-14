@@ -86,7 +86,7 @@ void Controller::stateCallback(const nav_msgs::OdometryConstPtr &msg)
   xhat_.q = msg->twist.twist.angular.y;
   xhat_.r = msg->twist.twist.angular.z;
 
-  if(is_flying_ && armed_ && received_cmd_)
+  if(/*is_flying_ &&*/ armed_ && received_cmd_)
   {
     ROS_WARN_ONCE("CONTROLLER ACTIVE");
     computeControl(dt);
@@ -121,11 +121,13 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
     armed_ = (msg->ignore != 8);
     if (!armed_)
     {
+       //  std::cout << "NOT ARMED, OBVIOUSLY" << std::endl;
         command_.F = 0.0;
         command_.x = 0.0;
         command_.y = 0.0;
         command_.z = 0.0;
         command_.ignore = 8;
+        command_.mode = rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE;;
 //        std::cout << "CASE 1" << std::endl;
         publishCommand();
         received_cmd_ = false;
@@ -237,9 +239,11 @@ void Controller::reconfigure_callback(roscopter::ControllerConfig& config,
 
 void Controller::computeControl(double dt)
 {
+//std::cout << "IN THE CONTROL LOOP" << std::endl;
   if(dt <= 0.0000001)
   {
     // This messes up the derivative calculation in the PID controllers
+    ROS_WARN("dt <= 0.0000001; no control computed");
     return;
   }
 
