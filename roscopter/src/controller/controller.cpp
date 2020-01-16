@@ -46,6 +46,7 @@ Controller::Controller() :
   status_sub_ = nh_.subscribe("status", 1, &Controller::statusCallback, this);
 
   command_pub_ = nh_.advertise<rosflight_msgs::Command>("command", 1);
+  full_command_pub_ = nh_.advertise<nav_msgs::Odometry>("full_hl_command", 1);
 }
 
 
@@ -137,33 +138,60 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
   switch(msg->mode)
   {
     case rosflight_msgs::Command::MODE_PITCH_YVEL_YAW_ALTITUDE:
-      xc_.theta = static_cast<double>(msg->x);
-      xc_.y_dot = static_cast<double>(msg->y);
-      xc_.pd = static_cast<double>(-msg->F);
-      xc_.psi = static_cast<double>(msg->z);
       control_mode_ = static_cast<uint8_t>(msg->mode);
+      xc_.pn = 0.0;
+      xc_.pe = 0.0;
+      xc_.pd = static_cast<double>(-msg->F);
+      // xc_.phi determined by control
+      xc_.theta = static_cast<double>(msg->x);
+      xc_.psi = static_cast<double>(msg->z);
+      xc_.x_dot = 0.0;
+      xc_.y_dot = static_cast<double>(msg->y);
+      // xc_.z_dot determined by control
+      // xc_.r determined by control
       break;
     case rosflight_msgs::Command::MODE_XPOS_YPOS_YAW_ALTITUDE:
-//      std::cout << "WENT HERE" << std::endl;
+      control_mode_ = msg->mode;
       xc_.pn = static_cast<double>(msg->x);
       xc_.pe = static_cast<double>(msg->y);
       xc_.pd = static_cast<double>(-msg->F);
+      // xc_.phi determined by control
+      // xc_.theta determined by control
       xc_.psi = static_cast<double>(msg->z);
-      control_mode_ = msg->mode;
+      // xc_.x_dot determined by control
+      // xc_.y_dot determined by control
+      // xc_.z_dot determined by control
+      // xc_.r determined by control
       break;
     case rosflight_msgs::Command::MODE_XVEL_YVEL_YAWRATE_ALTITUDE:
+      control_mode_ = msg->mode;
+      xc_.pn = 0.0;
+      xc_.pe = 0.0;
+      xc_.pd = static_cast<double>(-msg->F);
+      // xc_.phi determined by control
+      // xc_.theta determined by control
+      xc_.psi = 0.0;
       xc_.x_dot = static_cast<double>(msg->x);
       xc_.y_dot = static_cast<double>(msg->y);
-      xc_.pd = static_cast<double>(-msg->F);
+      // xc_.z_dot determined by control
       xc_.r = static_cast<double>(msg->z);
-      control_mode_ = msg->mode;
       break;
     case rosflight_msgs::Command::MODE_XACC_YACC_YAWRATE_AZ:
+      control_mode_ = msg->mode;
+      xc_.pn = 0.0;
+      xc_.pe = 0.0;
+      xc_.pd = 0.0;
+      // xc_.phi determined by control
+      // xc_.theta determined by control
+      xc_.psi = 0.0;
+      xc_.x_dot = 0.0;
+      xc_.y_dot = 0.0;
+      xc_.z_dot = 0.0;
+      xc_.r = static_cast<double>(msg->z);
+
       xc_.ax = static_cast<double>(msg->x);
       xc_.ay = static_cast<double>(msg->y);
       xc_.az = static_cast<double>(msg->F);
-      xc_.r = static_cast<double>(msg->z);
-      control_mode_ = msg->mode;
       break;
     default:
       ROS_ERROR("roscopter/controller: Unhandled command message of type %d",
@@ -277,6 +305,7 @@ void Controller::computeControl(double dt)
       xc_.ax = 0.0;
       xc_.ay = PID_y_dot_.computePID(xc_.y_dot, pydot, dt);
       double pddot_c = PID_d_.computePID(xc_.pd, xhat_.pd, dt, pddot);
+      xc_.z_dot = pddot_c;
       xc_.az = PID_z_dot_.computePID(pddot_c, pddot, dt);
 
       /// Get commanded phi and throttle from the total commanded acceleration
@@ -338,6 +367,7 @@ void Controller::computeControl(double dt)
 
     // Nested Loop for Altitude
     double pddot_c = PID_d_.computePID(xc_.pd, xhat_.pd, dt, pddot);
+    xc_.z_dot = pddot_c;
     xc_.az = PID_z_dot_.computePID(pddot_c, pddot, dt);
     mode_flag = rosflight_msgs::Command::MODE_XACC_YACC_YAWRATE_AZ;
   }
@@ -393,6 +423,21 @@ void Controller::publishCommand()
 //    std::cout << "ROSCOPTER publish COMMAND" << std::endl;
   command_.header.stamp = ros::Time::now();
   command_pub_.publish(command_);
+  nav_msgs::Odometry full_cmd;
+  full_cmd.header.stamp = ros::Time::now();
+  full_cmd.pose.pose.position.x = xc_.pn;
+  full_cmd.pose.pose.position.y = xc_.pe;
+  full_cmd.pose.pose.position.z = xc_.pd;
+  full_cmd.pose.pose.orientation.x = xc_.phi;
+  full_cmd.pose.pose.orientation.y = xc_.theta;
+  full_cmd.pose.pose.orientation.z = xc_.psi;
+  // NO W USED BECAUSE EULER CONVENTION USED
+  full_cmd.twist.twist.linear.x = xc_.x_dot;
+  full_cmd.twist.twist.linear.y = xc_.y_dot;
+  full_cmd.twist.twist.linear.z = xc_.z_dot;
+  // NO P OR Q USED BECAUSE ONLY R USED
+  full_cmd.twist.twist.angular.z = xc_.r;
+  full_command_pub_.publish(full_cmd);
 }
 
 void Controller::resetIntegrators()

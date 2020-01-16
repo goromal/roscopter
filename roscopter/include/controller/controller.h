@@ -87,6 +87,7 @@ private:
   ros::Subscriber cmd_sub_;
   ros::Subscriber status_sub_;
 
+  ros::Publisher full_command_pub_;
   ros::Publisher command_pub_;
 
   // Paramters
