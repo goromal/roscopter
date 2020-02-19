@@ -90,7 +90,7 @@ private:
   ros::Publisher full_command_pub_;
   ros::Publisher command_pub_;
 
-  // Paramters
+  // Parameters
   double throttle_eq_;
   double mass_;
   double max_thrust_;
@@ -121,6 +121,9 @@ private:
   max_t max_ = {};
   rosflight_msgs::Command command_;
   command_t xc_ = {}; // command
+  double pn_0_;
+  double pe_0_;
+  double pd_0_;
   double prev_time_;
   uint8_t control_mode_;
 

@@ -24,6 +24,10 @@ Controller::Controller() :
   armed_ = false;
   received_cmd_ = false;
 
+  pn_0_ = 0.0;
+  pe_0_ = 0.0;
+  pd_0_ = 0.0;
+
   nh_private_.getParam("max_roll", max_.roll);
   nh_private_.getParam("max_pitch", max_.pitch);
   nh_private_.getParam("max_yaw_rate", max_.yaw_rate);
@@ -87,7 +91,7 @@ void Controller::stateCallback(const nav_msgs::OdometryConstPtr &msg)
   xhat_.q = msg->twist.twist.angular.y;
   xhat_.r = msg->twist.twist.angular.z;
 
-  if(/*is_flying_ &&*/ armed_ && received_cmd_)
+  if(/*is_flying_ &&*/ armed_ && received_cmd_) // probably guards against the (throttle on ground) thing...
   {
     ROS_WARN_ONCE("CONTROLLER ACTIVE");
     computeControl(dt);
@@ -111,25 +115,23 @@ void Controller::isFlyingCallback(const std_msgs::BoolConstPtr &msg)
 
 void Controller::statusCallback(const rosflight_msgs::StatusConstPtr &msg)
 {
-//  armed_ = msg->armed;
-//  if (!armed_)
-//      received_cmd_ = false;
+  armed_ = msg->armed;
+  if (!armed_)
+      received_cmd_ = false;
 }
 
 
 void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
 {
-    armed_ = (msg->ignore != 8);
+//    armed_ = (msg->ignore != 8);
     if (!armed_)
     {
-       //  std::cout << "NOT ARMED, OBVIOUSLY" << std::endl;
         command_.F = 0.0;
         command_.x = 0.0;
         command_.y = 0.0;
         command_.z = 0.0;
         command_.ignore = 8;
-        command_.mode = rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE;;
-//        std::cout << "CASE 1" << std::endl;
+        command_.mode = rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE;
         publishCommand();
         received_cmd_ = false;
         return;
@@ -138,10 +140,15 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
   switch(msg->mode)
   {
     case rosflight_msgs::Command::MODE_PITCH_YVEL_YAW_ALTITUDE:
+      if (control_mode_ == rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE)
+      {
+          pd_0_ = xhat_.pd;
+          ROS_INFO("New controller altitude offset: alt=%f", -pd_0_);
+      }
       control_mode_ = static_cast<uint8_t>(msg->mode);
       xc_.pn = 0.0;
       xc_.pe = 0.0;
-      xc_.pd = static_cast<double>(-msg->F);
+      xc_.pd = static_cast<double>(-msg->F) + pd_0_;
       // xc_.phi determined by control
       xc_.theta = static_cast<double>(msg->x);
       xc_.psi = static_cast<double>(msg->z);
@@ -151,10 +158,17 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
       // xc_.r determined by control
       break;
     case rosflight_msgs::Command::MODE_XPOS_YPOS_YAW_ALTITUDE:
+      if (control_mode_ == rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE)
+      {
+          pn_0_ = xhat_.pn;
+          pe_0_ = xhat_.pe;
+          pd_0_ = xhat_.pd;
+          ROS_INFO("New positional offsets: pn=%f pe=%f pd=%f", pn_0_, pe_0_, -pd_0_);
+      }
       control_mode_ = msg->mode;
-      xc_.pn = static_cast<double>(msg->x);
-      xc_.pe = static_cast<double>(msg->y);
-      xc_.pd = static_cast<double>(-msg->F);
+      xc_.pn = static_cast<double>(msg->x)  + pn_0_;
+      xc_.pe = static_cast<double>(msg->y)  + pe_0_;
+      xc_.pd = static_cast<double>(-msg->F) + pd_0_;
       // xc_.phi determined by control
       // xc_.theta determined by control
       xc_.psi = static_cast<double>(msg->z);
@@ -164,10 +178,15 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
       // xc_.r determined by control
       break;
     case rosflight_msgs::Command::MODE_XVEL_YVEL_YAWRATE_ALTITUDE:
+      if (control_mode_ == rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE)
+      {
+          pd_0_ = xhat_.pd;
+          ROS_INFO("New controller altitude offset: alt=%f", -pd_0_);
+      }
       control_mode_ = msg->mode;
       xc_.pn = 0.0;
       xc_.pe = 0.0;
-      xc_.pd = static_cast<double>(-msg->F);
+      xc_.pd = static_cast<double>(-msg->F) + pd_0_;
       // xc_.phi determined by control
       // xc_.theta determined by control
       xc_.psi = 0.0;
@@ -192,6 +211,14 @@ void Controller::cmdCallback(const rosflight_msgs::CommandConstPtr &msg)
       xc_.ax = static_cast<double>(msg->x);
       xc_.ay = static_cast<double>(msg->y);
       xc_.az = static_cast<double>(msg->F);
+      break;
+  case rosflight_msgs::Command::MODE_ROLL_PITCH_YAWRATE_THROTTLE: // effectively pass right through to
+      // ROSflight via the innermost control "loop"
+      control_mode_ = msg->mode;
+      xc_.phi = static_cast<double>(msg->x);
+      xc_.theta = static_cast<double>(msg->y);
+      xc_.r = static_cast<double>(msg->z);
+      xc_.throttle = static_cast<double>(msg->F);
       break;
     default:
       ROS_ERROR("roscopter/controller: Unhandled command message of type %d",
