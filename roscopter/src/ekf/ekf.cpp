@@ -23,10 +23,10 @@ EKF::~EKF()
     delete logs_[i];
 }
 
-void EKF::load(const std::string &filename)
+void EKF::load(const std::string &filename, const std::string &frame_filename, bool enable_log=false, const std::string &log_prefix="/tmp")
 {
   // Constant Parameters
-  get_yaml_eigen("p_b2g", filename, p_b2g_);
+  get_yaml_eigen("p_b2g", frame_filename, p_b2g_);
   get_yaml_diag("Qx", filename, Qx_);
   get_yaml_diag("P0", filename, P());
   P0_yaw_ = P()(ErrorState::DQ + 2, ErrorState::DQ + 2);
@@ -45,6 +45,8 @@ void EKF::load(const std::string &filename)
   get_yaml_node("use_gnss", filename, use_gnss_);
   get_yaml_node("use_baro", filename, use_baro_);
   get_yaml_node("use_range", filename, use_range_);
+  get_yaml_node("use_pos", filename, use_pos_);
+  get_yaml_node("use_vel", filename, use_vel_);
   get_yaml_node("use_zero_vel", filename, use_zero_vel_);
 
   // Armed Check
@@ -84,19 +86,24 @@ void EKF::load(const std::string &filename)
 
   get_yaml_eigen("x0", filename, x0_.arr());
 
-  initLog(filename);
+  enable_log_ = enable_log;
+  if (enable_log_)
+    initLog(log_prefix);
 }
 
-void EKF::initLog(const std::string &filename)
+void EKF::initLog(const std::string &log_prefix)
 {
-  get_yaml_node("enable_log", filename, enable_log_);
-  get_yaml_node("log_prefix", filename, log_prefix_);
+  log_prefix_ = log_prefix;
 
-  std::experimental::filesystem::create_directories(log_prefix_);
-
-  logs_.resize(NUM_LOGS);
-  for (int i = 0; i < NUM_LOGS; i++)
-    logs_[i] = new Logger(log_prefix_ + "/" + log_names_[i] + ".bin");
+  if (enable_log_)
+  {
+    if (std::experimental::filesystem::exists(log_prefix_))
+        std::experimental::filesystem::remove_all(log_prefix_);
+    std::experimental::filesystem::create_directories(log_prefix_);
+    logs_.resize(NUM_LOGS);
+    for (int i = 0; i < NUM_LOGS; i++)
+        logs_[i] = new Logger(log_prefix_ + "/" + log_names_[i] + ".bin");
+  }
 }
 
 void EKF::initialize(double t)
@@ -113,7 +120,7 @@ void EKF::initialize(double t)
     x().ref = 0.;
   x().a = -gravity;
   x().w.setZero();
-  is_flying_ = true;
+  is_flying_ = false; // true;
   armed_ = false;
 }
 
@@ -145,22 +152,24 @@ void EKF::propagate(const double &t, const Vector6d &imu, const Matrix6d &R)
   // discretize jacobians (first order)
   A_ = I_BIG + A_*dt;
   B_ = B_*dt;
-  CHECK_NAN(P());
-  CHECK_NAN(A_);
-  CHECK_NAN(B_);
-  CHECK_NAN(Qx_);
+  CHECK_NAN(P())
+  CHECK_NAN(A_)
+  CHECK_NAN(B_)
+  CHECK_NAN(Qx_)
   xbuf_.next().P = A_*P()*A_.T + B_*R*B_.T + Qx_*dt*dt; // covariance propagation
-  CHECK_NAN(xbuf_.next().P);
+  CHECK_NAN(xbuf_.next().P)
   xbuf_.advance();
   Qu_ = R; // copy because we might need it later.
 
   if (enable_log_)
   {
+    logs_[LOG_STATE]->log(x().t);
     logs_[LOG_STATE]->logVectors(x().arr, x().q.euler());
     logs_[LOG_COV]->log(x().t);
-    logs_[LOG_COV]->logVectors(P());
-    logs_[LOG_IMU]->log(t);
-    logs_[LOG_IMU]->logVectors(imu);
+    // WARNING: PROBABLY MISSING LOG VALUES AS .diagonal() DOES NOT SEEM TO PRESERVE REPORTED n x double MEMORY SIZE
+    logs_[LOG_COV]->logVectors(P().diagonal()); // TODO: maybe look into how to interpret cross values
+//    logs_[LOG_IMU]->log(t);
+//    logs_[LOG_IMU]->logVectors(imu);
   }
 }
 
@@ -240,9 +249,11 @@ bool EKF::measUpdate(const VectorXd &res, const MatrixXd &R, const MatrixXd &H)
   ///TODO: perform covariance gating
   MatrixXd innov = (H*P()*H.T + R).inverse();
 
-  CHECK_NAN(H); CHECK_NAN(R); CHECK_NAN(P());
+  CHECK_NAN(H)
+  CHECK_NAN(R)
+  CHECK_NAN(P())
   K = P() * H.T * innov;
-  CHECK_NAN(K);
+  CHECK_NAN(K)
 
   if (enable_partial_update_)
   {
@@ -260,7 +271,7 @@ bool EKF::measUpdate(const VectorXd &res, const MatrixXd &R, const MatrixXd &H)
     P() = ImKH*P()*ImKH.T + K*R*K.T;
   }
 
-  CHECK_NAN(P());
+  CHECK_NAN(P())
   return true;
 }
 
@@ -351,6 +362,18 @@ void EKF::mocapCallback(const double& t, const xform::Xformd& z, const Matrix6d&
   }
 }
 
+void EKF::posCallback(const double &t, const Eigen::Vector3d &z, const Eigen::Matrix3d &R)
+{
+    // TODO: try to fix out of order...
+    posUpdate(meas::Pos(t, z, R));
+}
+
+void EKF::velCallback(const double &t, const Eigen::Vector3d &z, const Eigen::Matrix3d &R)
+{
+    // TODO: try to fix out of order...
+    velUpdate(meas::Vel(t, z, R));
+}
+
 void EKF::baroUpdate(const meas::Baro &z)
 {
   if (!this->groundTempPressSet())
@@ -379,7 +402,7 @@ void EKF::baroUpdate(const meas::Baro &z)
   using Vector1d = Eigen::Matrix<double, 1, 1>;
 
   // // From "Small Unmanned Aircraft: Theory and Practice" eq 7.8
-  const double g = 9.80665; // m/(s^2) gravity 
+  const double g = 9.80665; // m/(s^2) gravity
   const double R = 8.31432; // universal gas constant
   const double M = 0.0289644; // kg / mol. molar mass of Earth's air
 
@@ -409,7 +432,9 @@ void EKF::baroUpdate(const meas::Baro &z)
   if (enable_log_)
   {
     logs_[LOG_BARO_RES]->log(z.t);
-    logs_[LOG_BARO_RES]->logVectors(r, z.z, zhat);
+//   logs_[LOG_BARO_RES]->logVectors(r, z.z, zhat, z.R);
+     Vector1d z_alt = Vector1d((ground_pressure_+baro_bias - z.z(0,0))/(rho*g));
+     logs_[LOG_BARO_RES]->logVectors(r, z_alt, Vector1d(altitude), z.R);
     logs_[LOG_BARO_RES]->log(z.temp);
   }
 
@@ -464,7 +489,7 @@ void EKF::rangeUpdate(const meas::Range &z)
   if (enable_log_)
   {
     logs_[LOG_RANGE_RES]->log(z.t);
-    logs_[LOG_RANGE_RES]->logVectors(r, z.z, zhat);
+    logs_[LOG_RANGE_RES]->logVectors(r, z.z, zhat, z.R);
   }
 
 }
@@ -515,7 +540,10 @@ void EKF::gnssUpdate(const meas::Gnss &z)
   if (enable_log_)
   {
     logs_[LOG_GNSS_RES]->log(z.t);
-    logs_[LOG_GNSS_RES]->logVectors(r, z.z, zhat);
+//    logs_[LOG_GNSS_RES]->logVectors(r, z.z, zhat, z.R.diagonal());
+    logs_[LOG_GNSS_RES]->logVectors(r, (Vector6d() << x_e2I_.transformp(z.z.block<3,1>(0,0)),
+                                    x_e2I_.rotp(z.z.block<3,1>(3,0))).finished(),
+                                    (Vector6d() << gps_pos_I, gps_vel_I).finished(), Vector6d(z.R.diagonal()));
   }
 }
 
@@ -546,8 +574,60 @@ void EKF::mocapUpdate(const meas::Mocap &z)
   if (enable_log_)
   {
     logs_[LOG_MOCAP_RES]->log(z.t);
-    logs_[LOG_MOCAP_RES]->logVectors(r, z.z.arr(), zhat.arr());
+//    logs_[LOG_MOCAP_RES]->logVectors(r, z.z.arr(), zhat.arr());
+    logs_[LOG_MOCAP_RES]->logVectors(r, z.z.t(), z.z.q().euler(), zhat.t(), zhat.q().euler(), Vector6d(z.R.diagonal()));
   }
+}
+
+void EKF::posUpdate(const meas::Pos &z) // in the ship frame
+{
+    Vector3d zhat = x().p;
+    Vector3d r = z.z - zhat;
+
+    typedef ErrorState E;
+    Matrix<double, 3, E::NDX> H;
+    H.setZero();
+    H.block<3,3>(0, E::DP) = I_3x3;
+
+    if (use_pos_)
+    {
+        measUpdate(r, z.R, H);
+    }
+
+    if (enable_log_)
+    {
+        logs_[LOG_REL_POS]->log(z.t);
+        logs_[LOG_REL_POS]->logVectors(r, z.z, zhat, Vector3d(z.R.diagonal()));
+    }
+}
+
+void EKF::velUpdate(const meas::Vel &z) // TODO TODO TODO: a moving base frame throws this all off (also yaw...)--absolute/relative
+                                        // TODO            estimation paradigm needs to be re-thought
+{
+    const Vector3d vel_b = x().v;
+    const Vector3d vel_I = x().q.rota(vel_b);
+
+    Vector3d zhat = vel_I;
+    const Vector3d r = z.z - zhat;
+
+    const Matrix3d R_b2I = x().q.R().T;
+
+    typedef ErrorState E;
+    Matrix<double, 3, E::NDX> H;
+    H.setZero();
+    H.block<3,3>(0, E::DQ) = -R_b2I * skew(vel_b);
+    H.block<3,3>(0, E::DV) = R_b2I;
+
+    if (use_vel_)
+    {
+        measUpdate(r, z.R, H);
+    }
+
+    if (enable_log_)
+    {
+        logs_[LOG_REL_VEL]->log(z.t);
+        logs_[LOG_REL_VEL]->logVectors(r, z.z, zhat, Vector3d(z.R.diagonal()));
+    }
 }
 
 void EKF::zeroVelUpdate(double t)
@@ -619,13 +699,13 @@ void EKF::setGroundTempPressure(const double& temp, const double& press)
 
 void EKF::checkIsFlying()
 {
-    is_flying_ = true;
-//  bool okay_to_check = enable_arm_check_ ? armed_ : true;
-//  if (okay_to_check && x().a.norm() > is_flying_threshold_)
-//  {
-//    std::cout << "Now Flying!  Go Go Go!" << std::endl;
 //    is_flying_ = true;
-//  }
+  bool okay_to_check = enable_arm_check_ ? armed_ : true;
+  if (okay_to_check && x().a.norm() > is_flying_threshold_)
+  {
+    std::cout << "Now Flying!  Go Go Go!" << std::endl;
+    is_flying_ = true;
+  }
 }
 
 

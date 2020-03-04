@@ -59,8 +59,8 @@ public:
   const dxMat& P() const { return xbuf_.P(); }
 
   void initialize(double t);
-  void load(const std::string& filename);
-  void initLog(const std::string& filename);
+  void load(const std::string &filename, const std::string &frame_filename, bool enable_log, const std::string &log_prefix);
+  void initLog(const std::string &log_prefix);
 
   void run();
   void update(const meas::Base *m);
@@ -89,11 +89,15 @@ public:
   void rangeCallback(const double& t, const double& z, const double& R);
   void gnssCallback(const double& t, const Vector6d& z, const Matrix6d& R);
   void mocapCallback(const double& t, const xform::Xformd& z, const Matrix6d& R);
+  void posCallback(const double& t, const Eigen::Vector3d& z, const Eigen::Matrix3d& R);
+  void velCallback(const double& t, const Eigen::Vector3d& z, const Eigen::Matrix3d& R);
 
   void baroUpdate(const meas::Baro &z);
   void rangeUpdate(const meas::Range &z);
   void gnssUpdate(const meas::Gnss &z);
   void mocapUpdate(const meas::Mocap &z);
+  void posUpdate(const meas::Pos &z);
+  void velUpdate(const meas::Vel &z);
   void zeroVelUpdate(double t);
 
   void setRefLla(Eigen::Vector3d ref_lla);
@@ -114,6 +118,8 @@ public:
     LOG_IMU,
     LOG_LLA,
     LOG_REF,
+    LOG_REL_POS,
+    LOG_REL_VEL,
     NUM_LOGS
   };
   std::vector<std::string> log_names_ {
@@ -126,7 +132,9 @@ public:
     "range_res",
     "imu",
     "lla",
-    "ref"
+    "ref",
+    "rel_pos",
+    "rel_vel"
   };
   bool enable_log_;
   std::vector<Logger*> logs_;
@@ -173,6 +181,8 @@ public:
   bool use_baro_;
   bool use_range_;
   bool use_gnss_;
+  bool use_pos_;
+  bool use_vel_;
   bool use_zero_vel_;
   bool enable_out_of_order_;
   bool enable_partial_update_;

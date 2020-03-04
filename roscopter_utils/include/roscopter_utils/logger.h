@@ -8,11 +8,20 @@
 #include <unistd.h>
 #include <iostream>
 #include <Eigen/Dense>
+#include <utility>
 
 #define LOGGER_BUFFER_SIZE 1024*1024
 
 namespace roscopter
 {
+
+template <typename Arg, typename... Args>
+void doPrint(std::ostream& out, Arg&& arg, Args&&... args)
+{
+    out << std::forward<Arg>(arg);
+    using expander = int[];
+    (void)expander{0, (void(out << ',' << std::forward<Args>(args)), 0)...};
+}
 
 class Logger
 {
@@ -43,6 +52,7 @@ public:
     void logVectors(T... data)
     {
         int dummy[sizeof...(data)] = { (file_.write((char*)data.data(), sizeof(typename T::Scalar)*data.rows()*data.cols()), 1)... };
+//        doPrint(std::cout, data...);
     }
 
     std::ofstream file_;

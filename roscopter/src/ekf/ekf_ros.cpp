@@ -53,8 +53,11 @@ void EKF_ROS::initROS()
 {
   std::string roscopter_path = ros::package::getPath("roscopter");
   std::string parameter_filename = nh_private_.param<std::string>("param_filename", roscopter_path + "/params/ekf.yaml");
+  std::string frame_filename = nh_private_.param<std::string>("frame_paramfile", "/no/frame/paramfile/given.yaml");
+  bool enable_logging = nh_private_.param<bool>("enable_logging", false);
+  std::string log_prefix = nh_private_.param<std::string>("log_prefix", "/no/log/prefix/given");
 
-  init(parameter_filename);
+  init(parameter_filename, frame_filename, enable_logging, log_prefix);
 
   odometry_pub_ = nh_.advertise<nav_msgs::Odometry>("odom", 1);
   euler_pub_ = nh_.advertise<geometry_msgs::Vector3Stamped>("euler_degrees", 1);
@@ -64,6 +67,8 @@ void EKF_ROS::initROS()
   imu_sub_ = nh_.subscribe("imu", 100, &EKF_ROS::imuCallback, this);
   baro_sub_ = nh_.subscribe("baro", 100, &EKF_ROS::baroCallback, this);
   pose_sub_ = nh_.subscribe("pose", 10, &EKF_ROS::poseCallback, this);
+  pos_sub_  = nh_.subscribe("pos", 10, &EKF_ROS::posCallback, this);
+  vel_sub_  = nh_.subscribe("vel", 10, &EKF_ROS::velCallback, this);
   odom_sub_ = nh_.subscribe("reference", 10, &EKF_ROS::odomCallback, this);
   gnss_sub_ = nh_.subscribe("gnss", 10, &EKF_ROS::gnssCallback, this);
 
@@ -77,9 +82,9 @@ void EKF_ROS::initROS()
   ros_initialized_ = true;
 }
 
-void EKF_ROS::init(const std::string &param_file)
+void EKF_ROS::init(const std::string& param_file, const std::string& frame_file, const bool& enable_logs, const std::string& log_prefix)
 {
-  ekf_.load(param_file);
+  ekf_.load(param_file, frame_file, enable_logs, log_prefix);
 
   // Load Sensor Noise Parameters
   double acc_stdev, gyro_stdev;
@@ -88,6 +93,22 @@ void EKF_ROS::init(const std::string &param_file)
   imu_R_.setZero();
   imu_R_.topLeftCorner<3,3>() = acc_stdev * acc_stdev * I_3x3;
   imu_R_.bottomRightCorner<3,3>() = gyro_stdev * gyro_stdev * I_3x3;
+
+  get_yaml_node("use_manual_pos_noise", param_file, manual_pos_noise_);
+  if (manual_pos_noise_)
+  {
+      double poss_stdev;
+      get_yaml_node("pos_noise_stdev", param_file, poss_stdev);
+      pos_R_ = poss_stdev * poss_stdev * I_3x3;
+  }
+
+  get_yaml_node("use_manual_vel_noise", param_file, manual_vel_noise_);
+  if (manual_vel_noise_)
+  {
+      double vel_stdev;
+      get_yaml_node("vel_noise_stdev", param_file, vel_stdev);
+      vel_R_ = vel_stdev * vel_stdev * I_3x3;
+  }
 
   double pos_stdev, att_stdev;
   get_yaml_node("position_noise_stdev", param_file, pos_stdev);
@@ -177,7 +198,8 @@ void EKF_ROS::imuCallback(const sensor_msgs::ImuConstPtr &msg)
 {
   if (start_time_.sec == 0)
   {
-    start_time_ = msg->header.stamp;
+//    start_time_ = msg->header.stamp;
+    start_time_ = ros::Time::now();
   }
 
   Vector6d z;
@@ -188,7 +210,8 @@ void EKF_ROS::imuCallback(const sensor_msgs::ImuConstPtr &msg)
        msg->angular_velocity.y,
        msg->angular_velocity.z;
 
-  double t = (msg->header.stamp - start_time_).toSec();
+//  double t = (msg->header.stamp - start_time_).toSec();
+  double t = (ros::Time::now() - start_time_).toSec();
   ekf_.imuCallback(t, z, imu_R_);
 
   if(ros_initialized_)
@@ -210,7 +233,8 @@ void EKF_ROS::baroCallback(const rosflight_msgs::BarometerConstPtr& msg)
   if (start_time_.sec == 0)
     return;
 
-  const double t = (msg->header.stamp - start_time_).toSec();
+//  const double t = (msg->header.stamp - start_time_).toSec();
+  const double t = (ros::Time::now() - start_time_).toSec();
   ekf_.baroCallback(t, pressure_meas, baro_R_, temperature_meas);
 }
 
@@ -222,7 +246,8 @@ void EKF_ROS::rangeCallback(const sensor_msgs::RangeConstPtr& msg)
   const double range_meas = msg->range;
   if (range_meas < msg->max_range && range_meas > msg->min_range)
   {
-    const double t = (msg->header.stamp - start_time_).toSec();
+//    const double t = (msg->header.stamp - start_time_).toSec();
+    const double t = (ros::Time::now() - start_time_).toSec();
     ekf_.rangeCallback(t, range_meas, range_R_);
   }
 }
@@ -239,6 +264,42 @@ void EKF_ROS::poseCallback(const geometry_msgs::PoseStampedConstPtr &msg)
           msg->pose.orientation.z;
 
   mocapCallback(msg->header.stamp, z);
+}
+
+void EKF_ROS::posCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg)
+{
+    if (start_time_.sec == 0)
+      return;
+
+    Vector3d z;
+    z << msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z;
+//    const double t = (msg->header.stamp - start_time_).toSec();
+    const double t = (ros::Time::now() - start_time_).toSec();
+    if (!manual_pos_noise_)
+    {
+        double x_pos_stdev = msg->pose.covariance[0];
+        double y_pos_stdev = msg->pose.covariance[1];
+        double z_pos_stdev = msg->pose.covariance[2];
+        pos_R_ = Eigen::DiagonalMatrix<double, 3>(x_pos_stdev*x_pos_stdev, y_pos_stdev*y_pos_stdev, z_pos_stdev*z_pos_stdev);
+    }
+    ekf_.posCallback(t, z, pos_R_);
+}
+
+void EKF_ROS::velCallback(const geometry_msgs::TwistWithCovarianceStampedConstPtr &msg)
+{
+    if (start_time_.sec == 0)
+        return;
+
+    Vector3d z;
+    z << msg->twist.twist.linear.x, msg->twist.twist.linear.y, msg->twist.twist.linear.z;
+//    const double t = (msg->header.stamp - start_time_).toSec();
+    const double t = (ros::Time::now() - start_time_).toSec();
+    if (!manual_vel_noise_)
+    {
+        double vel_stdev = msg->twist.covariance[0];
+        vel_R_ = vel_stdev * vel_stdev * I_3x3;
+    }
+    ekf_.velCallback(t, z, vel_R_);
 }
 
 void EKF_ROS::odomCallback(const nav_msgs::OdometryConstPtr &msg)
@@ -313,7 +374,7 @@ void EKF_ROS::gnssCallback(const rosflight_msgs::GNSSConstPtr &msg)
   Matrix6d Sigma_ecef;
   Sigma_ecef << R_e2n.transpose() * Sigma_diag_NED.head<3>().asDiagonal() * R_e2n, Matrix3d::Zero(),
                 Matrix3d::Zero(), R_e2n.transpose() *  Sigma_diag_NED.tail<3>().asDiagonal() * R_e2n;
-
+//    std::cout << Sigma_ecef << std::endl;
   if (!ekf_.refLlaSet())
   {
     // set ref lla to first gps position
@@ -326,7 +387,9 @@ void EKF_ROS::gnssCallback(const rosflight_msgs::GNSSConstPtr &msg)
   if (start_time_.sec == 0)
     return;
 
-  double t = (msg->header.stamp - start_time_).toSec();
+//  double t = (msg->header.stamp - start_time_).toSec();
+  double t = (ros::Time::now() - start_time_).toSec();
+//  std::cout << t << std::endl;
   ekf_.gnssCallback(t, z, Sigma_ecef);
 }
 

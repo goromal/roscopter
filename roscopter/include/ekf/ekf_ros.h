@@ -49,6 +49,8 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <geometry_msgs/Vector3Stamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <geometry_msgs/TwistWithCovarianceStamped.h>
 #include <std_msgs/Bool.h>
 
 #ifdef UBLOX
@@ -68,7 +70,7 @@ public:
 
   EKF_ROS();
   ~EKF_ROS();
-  void init(const std::string& param_file);
+  void init(const std::string& param_file, const std::string& frame_file, const bool& enable_logs, const std::string& log_prefix);
   void initROS();
 
   void imuCallback(const sensor_msgs::ImuConstPtr& msg);
@@ -78,6 +80,8 @@ public:
   void odomCallback(const nav_msgs::OdometryConstPtr &msg);
   void gnssCallback(const rosflight_msgs::GNSSConstPtr& msg);
   void mocapCallback(const ros::Time& time, const xform::Xformd &z);
+  void posCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg);
+  void velCallback(const geometry_msgs::TwistWithCovarianceStampedConstPtr &msg);
   void statusCallback(const rosflight_msgs::StatusConstPtr& msg);
 
 #ifdef UBLOX
@@ -102,6 +106,8 @@ private:
   ros::Subscriber pose_sub_;
   ros::Subscriber odom_sub_;
   ros::Subscriber gnss_sub_;
+  ros::Subscriber pos_sub_;
+  ros::Subscriber vel_sub_;
   ros::Subscriber status_sub_;
 
   ros::Publisher odometry_pub_;
@@ -141,8 +147,13 @@ private:
 
   Matrix6d imu_R_;
   Matrix6d mocap_R_;
+  Eigen::Matrix3d pos_R_;
+  Eigen::Matrix3d vel_R_;
   double baro_R_;
   double range_R_;
+
+  bool manual_pos_noise_;
+  bool manual_vel_noise_;
 
   bool manual_gps_noise_;
   double gps_horizontal_stdev_;

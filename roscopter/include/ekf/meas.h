@@ -28,7 +28,9 @@ struct Base
         BARO,
         RANGE,
         MOCAP,
-        ZERO_VEL
+        ZERO_VEL,
+        POS,
+        VEL
     };
     double t;
     int type;
@@ -77,6 +79,22 @@ struct Range : public Base
     Range(double _t, const double& _z, const double& _R);
     Eigen::Matrix<double, 1, 1> z;
     Eigen::Matrix<double, 1, 1> R;
+};
+
+struct Pos : public Base
+{
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    Pos(double _t, const Eigen::Vector3d& _z, const Eigen::Matrix3d& _R);
+    Eigen::Vector3d z;
+    Eigen::Matrix3d R;
+};
+
+struct Vel : public Base
+{
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    Vel(double _t, const Eigen::Vector3d& _z, const Eigen::Matrix3d& _R);
+    Eigen::Vector3d z;
+    Eigen::Matrix3d R;
 };
 
 struct Mocap : public Base

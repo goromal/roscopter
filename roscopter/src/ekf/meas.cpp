@@ -36,6 +36,12 @@ std::string Base::Type() const
     case ZERO_VEL:
         return "ZeroVel";
         break;
+    case POS:
+        return "Pos";
+        break;
+    case VEL:
+        return "Vel";
+        break;
     }
 }
 
@@ -61,6 +67,22 @@ Baro::Baro(double _t, const double &_z, const double &_R, const double& _temp)
     R(0) = _R;
     temp = _temp;
     type = RANGE;
+}
+
+Pos::Pos(double _t, const Eigen::Vector3d& _z, const Eigen::Matrix3d& _R)
+{
+    t = _t;
+    z = _z;
+    R = _R;
+    type = POS;
+}
+
+Vel::Vel(double _t, const Eigen::Vector3d& _z, const Eigen::Matrix3d& _R)
+{
+    t = _t;
+    z = _z;
+    R = _R;
+    type = VEL;
 }
 
 Range::Range(double _t, const double &_z, const double &_R)
