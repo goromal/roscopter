@@ -23,6 +23,9 @@ void EKF::dynamics(const State &x, const Vector6d& u, ErrorState &dx, bool calc_
     dx.bg.setZero();
     dx.bb = 0.;
     dx.ref = 0.;
+#ifdef RELATIVE
+    dx.qREL.setZero();
+#endif
 
     CHECK_NAN(dx.arr)
     if (calc_jac)
@@ -52,6 +55,8 @@ void EKF::dynamics(const State &x, const Vector6d& u, ErrorState &dx, bool calc_
     }
 }
 
+
+// DOESN'T APPEAR TO BE USED...
 void EKF::errorStateDynamics(const State& xhat, const ErrorState& xt, const Vector6d& u,
                              const Vector6d& eta, ErrorState& dxdot)
 {

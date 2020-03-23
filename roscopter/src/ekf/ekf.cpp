@@ -47,6 +47,9 @@ void EKF::load(const std::string &filename, const std::string &frame_filename, b
   get_yaml_node("use_range", filename, use_range_);
   get_yaml_node("use_pos", filename, use_pos_);
   get_yaml_node("use_vel", filename, use_vel_);
+#ifdef RELATIVE
+  get_yaml_node("use_relative_heading", filename, use_rel_head_);
+#endif
   get_yaml_node("use_zero_vel", filename, use_zero_vel_);
 
   // Armed Check
@@ -118,6 +121,9 @@ void EKF::initialize(double t)
     x().ref = x().ref;
   else
     x().ref = 0.;
+#ifdef RELATIVE
+  x().qREL = quat::Quatd::Identity();
+#endif
   x().a = -gravity;
   x().w.setZero();
   is_flying_ = false; // true;
@@ -165,6 +171,9 @@ void EKF::propagate(const double &t, const Vector6d &imu, const Matrix6d &R)
   {
     logs_[LOG_STATE]->log(x().t);
     logs_[LOG_STATE]->logVectors(x().arr, x().q.euler());
+#ifdef RELATIVE
+    logs_[LOG_STATE]->logVectors(x().qREL.euler());
+#endif
     logs_[LOG_COV]->log(x().t);
     // WARNING: PROBABLY MISSING LOG VALUES AS .diagonal() DOES NOT SEEM TO PRESERVE REPORTED n x double MEMORY SIZE
     logs_[LOG_COV]->logVectors(P().diagonal()); // TODO: maybe look into how to interpret cross values
@@ -362,17 +371,54 @@ void EKF::mocapCallback(const double& t, const xform::Xformd& z, const Matrix6d&
   }
 }
 
-void EKF::posCallback(const double &t, const Eigen::Vector3d &z, const Eigen::Matrix3d &R)
+void EKF::velNEDCallback(const double &t, const Eigen::Vector3d &z, const Eigen::Matrix3d &R)
 {
     // TODO: try to fix out of order...
-    posUpdate(meas::Pos(t, z, R));
+    velNEDUpdate(meas::Vel(t, z, R));
 }
 
-void EKF::velCallback(const double &t, const Eigen::Vector3d &z, const Eigen::Matrix3d &R)
+#ifdef RELATIVE
+void EKF::relPosCallback(const double &t, const Eigen::Vector3d &z, const Eigen::Matrix3d &R)
 {
     // TODO: try to fix out of order...
-    velUpdate(meas::Vel(t, z, R));
+    relPosUpdate(meas::Pos(t, z, R));
 }
+
+void EKF::relHeadingCallback(const double &t, const double &z, const double &R)
+{
+    // TODO: try to fix out of order...
+    relHeadingUpdate(meas::RelativeHeading(t, z, R));
+}
+
+void EKF::relHeadingUpdate(const meas::RelativeHeading &z)
+{
+//    double psi = x().qREL.yaw();
+    quat::Quatd zhat = x().qREL;
+    quat::Quatd zmes = quat::Quatd::from_euler(0,0,z.z(0,0));
+    Vector3d r = zmes - zhat;
+
+    typedef ErrorState E;
+    Matrix<double, 3, E::NDX> H;
+    H.setZero();
+//    H.block<3,3>(0, E::DQREL) = I_3x3;
+    Vector3d nzPsi = quat::Quatd::log(zhat);
+    double psi = nzPsi.norm();
+
+    H.block<3,3>(0, E::DQREL) = I_3x3; //sin(psi)/psi*I_3x3 - (1-cos(psi))/(psi*psi)*quat::Quatd::skew(nzPsi)
+//            + (psi-sin(psi))/(psi*psi*psi)*nzPsi * nzPsi.transpose();
+
+//    H.block<2,3>(0, E::DQREL).setZero(); // {}
+
+    if (use_rel_head_)
+        measUpdate(r, z.R, H);
+
+    if (enable_log_)
+    {
+        logs_[LOG_REL_HEADING]->log(z.t);
+        logs_[LOG_REL_HEADING]->logVectors(r, z.z, Vector1d(psi), Vector1d(z.R(2,2)));
+    }
+}
+#endif
 
 void EKF::baroUpdate(const meas::Baro &z)
 {
@@ -579,44 +625,64 @@ void EKF::mocapUpdate(const meas::Mocap &z)
   }
 }
 
-void EKF::posUpdate(const meas::Pos &z) // in the ship frame
+#ifdef RELATIVE
+void EKF::relPosUpdate(const meas::Pos &z) // NED-frame residuals
 {
-    Vector3d zhat = x().p;
-    Vector3d r = z.z - zhat;
-
     typedef ErrorState E;
-    Matrix<double, 3, E::NDX> H;
-    H.setZero();
-    H.block<3,3>(0, E::DP) = I_3x3;
+    Vector3d zhat = x().qREL.rota(x().p + x().q.rota(p_b2g_));
+
+    // Update for position
+    Vector3d r1 = z.z - zhat;
+    Matrix<double, 3, E::NDX> H1;
+    H1.setZero();
+    H1.block<3,3>(0, E::DP) = x().qREL.R().T;
+    H1.block<3,3>(0, E::DQ) = -x().qREL.R().T*x().q.R().T*quat::Quatd::skew(p_b2g_);
+
+    // Update for yaw
+    Vector3d z_dless(z.z(0), z.z(1), 0.0);
+    Vector3d zhat_dless(zhat(0), zhat(1), 0.0);
+    Vector3d r2 = z_dless - zhat_dless;
+    Matrix<double, 3, E::NDX> H2;
+    H2.setZero();
+    H2.block<3,3>(0, E::DQREL) = -x().qREL.R().T*quat::Quatd::skew(x().p + x().q.rota(p_b2g_));
+//    H2.block<2,3>(0, E::DQREL).setZero(); // {}
 
     if (use_pos_)
     {
-        measUpdate(r, z.R, H);
+        measUpdate(r1, z.R, H1);
+//        measUpdate(r2, z.R, H2);
     }
 
     if (enable_log_)
     {
         logs_[LOG_REL_POS]->log(z.t);
-        logs_[LOG_REL_POS]->logVectors(r, z.z, zhat, Vector3d(z.R.diagonal()));
+        logs_[LOG_REL_POS]->logVectors(r1, z.z, zhat, Vector3d(z.R.diagonal()));
     }
 }
+#endif
 
-void EKF::velUpdate(const meas::Vel &z) // TODO TODO TODO: a moving base frame throws this all off (also yaw...)--absolute/relative
+void EKF::velNEDUpdate(const meas::Vel &z) // TODO TODO TODO: a moving base frame throws this all off (also yaw...)--absolute/relative
                                         // TODO            estimation paradigm needs to be re-thought
 {
     const Vector3d vel_b = x().v;
-    const Vector3d vel_I = x().q.rota(vel_b);
-
-    Vector3d zhat = vel_I;
-    const Vector3d r = z.z - zhat;
-
+#ifdef RELATIVE
+    const Vector3d zhat = x().qREL.rota(x().q.rota(vel_b)); // inertial frame is relative frame, need to convert to NED frame
+    const Matrix3d R_b2I = x().qREL.R().T * x().q.R().T;
+#else
+    const Vector3d zhat = x().q.rota(vel_b); // inertial frame is NED frame
     const Matrix3d R_b2I = x().q.R().T;
+#endif
+
+    const Vector3d r = z.z - zhat;
 
     typedef ErrorState E;
     Matrix<double, 3, E::NDX> H;
     H.setZero();
     H.block<3,3>(0, E::DQ) = -R_b2I * skew(vel_b);
     H.block<3,3>(0, E::DV) = R_b2I;
+#ifdef RELATIVE
+//    H.block<3,3>(0, E::DQREL) = x().qREL.R().T * quat::Quatd::skew(x().q.rota(vel_b));
+#endif
 
     if (use_vel_)
     {

@@ -30,6 +30,9 @@ struct Base
         MOCAP,
         ZERO_VEL,
         POS,
+#ifdef RELATIVE
+        REL_HEADING,
+#endif
         VEL
     };
     double t;
@@ -80,6 +83,16 @@ struct Range : public Base
     Eigen::Matrix<double, 1, 1> z;
     Eigen::Matrix<double, 1, 1> R;
 };
+
+#ifdef RELATIVE
+struct RelativeHeading : public Base
+{
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    RelativeHeading(double _t, const double& _z, const double& _R);
+    Eigen::Matrix<double, 1, 1> z;
+    Eigen::Matrix<double, 3, 3> R;
+};
+#endif
 
 struct Pos : public Base
 {

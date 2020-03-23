@@ -52,6 +52,8 @@
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/TwistWithCovarianceStamped.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Float64MultiArray.h>
+#include <geometry_msgs/QuaternionStamped.h>
 
 #ifdef UBLOX
 #include "ublox/PosVelEcef.h"
@@ -80,8 +82,12 @@ public:
   void odomCallback(const nav_msgs::OdometryConstPtr &msg);
   void gnssCallback(const rosflight_msgs::GNSSConstPtr& msg);
   void mocapCallback(const ros::Time& time, const xform::Xformd &z);
-  void posCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg);
-  void velCallback(const geometry_msgs::TwistWithCovarianceStampedConstPtr &msg);
+#ifdef RELATIVE
+  void relNEDCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg);
+  void relHeadingCallback(const std_msgs::Float64MultiArrayConstPtr& msg);
+#endif
+//  void posCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg);
+  void velNEDCallback(const geometry_msgs::TwistWithCovarianceStampedConstPtr &msg);
   void statusCallback(const rosflight_msgs::StatusConstPtr& msg);
 
 #ifdef UBLOX
@@ -106,7 +112,10 @@ private:
   ros::Subscriber pose_sub_;
   ros::Subscriber odom_sub_;
   ros::Subscriber gnss_sub_;
+#ifdef RELATIVE
   ros::Subscriber pos_sub_;
+  ros::Subscriber rel_heading_sub_;
+#endif
   ros::Subscriber vel_sub_;
   ros::Subscriber status_sub_;
 
@@ -114,6 +123,11 @@ private:
   ros::Publisher euler_pub_;
   ros::Publisher imu_bias_pub_;
   ros::Publisher is_flying_pub_;
+#ifdef RELATIVE
+  ros::Publisher NED2REL_pub_;
+
+  geometry_msgs::QuaternionStamped NED2REL_msg_;
+#endif
 
   sensor_msgs::Imu imu_bias_msg_;
   nav_msgs::Odometry odom_msg_;
@@ -151,6 +165,11 @@ private:
   Eigen::Matrix3d vel_R_;
   double baro_R_;
   double range_R_;
+#ifdef RELATIVE
+  double heading_R_;
+
+  bool manual_heading_noise_;
+#endif
 
   bool manual_pos_noise_;
   bool manual_vel_noise_;

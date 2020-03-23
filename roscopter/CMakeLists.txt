@@ -68,6 +68,7 @@ add_executable(controller
 add_dependencies(controller ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(controller ${catkin_LIBRARIES})
 
+# absolute ekf
 add_library(ekf
   src/ekf/state.cpp
   src/ekf/dynamics.cpp
@@ -85,6 +86,28 @@ add_dependencies(ekf_ros ${catkin_EXPORTED_TARGETS})
 add_executable(ekf_node src/ekf/ekf_node.cpp)
 target_link_libraries(ekf_node ekf_ros ${catkin_LIBRARIES})
 add_dependencies(ekf_node ${catkin_EXPORTED_TARGETS})
+
+# relative ekf
+add_library(relative_ekf
+  src/ekf/state.cpp
+  src/ekf/dynamics.cpp
+  src/ekf/ekf.cpp
+  src/ekf/meas.cpp
+  src/ekf/log.cpp
+)
+target_include_directories(relative_ekf PUBLIC include ${catkin_INCLUDE_DIRS})
+target_link_libraries(relative_ekf ${YAML_CPP_LIBRARIES} stdc++fs)
+set_target_properties(relative_ekf PROPERTIES COMPILE_FLAGS -DRELATIVE)
+
+add_library(relative_ekf_ros src/ekf/ekf_ros.cpp)
+target_link_libraries(relative_ekf_ros relative_ekf ${catkin_LIBRARIES})
+set_target_properties(relative_ekf_ros PROPERTIES COMPILE_FLAGS -DRELATIVE)
+add_dependencies(relative_ekf_ros ${catkin_EXPORTED_TARGETS})
+
+add_executable(relative_ekf_node src/ekf/ekf_node.cpp)
+set_target_properties(relative_ekf_node PROPERTIES COMPILE_FLAGS -DRELATIVE)
+target_link_libraries(relative_ekf_node relative_ekf_ros ${catkin_LIBRARIES})
+add_dependencies(relative_ekf_node ${catkin_EXPORTED_TARGETS})
 
 #add_executable(ekf_rosbag src/ekf/ekf_rosbag.cpp)
 #target_link_libraries(ekf_rosbag ekf_ros ${catkin_LIBRARIES})

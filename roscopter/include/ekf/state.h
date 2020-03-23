@@ -22,8 +22,14 @@ public:
         DBG = 12,
         DBB = 15,
         DREF = 16,
+#ifdef RELATIVE
+        DQREL = 17,
+        NDX = 20,
+        SIZE = 20
+#else
         NDX = 17,
         SIZE = 17
+#endif
     };
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     Eigen::Matrix<double, SIZE, 1> arr;
@@ -35,6 +41,9 @@ public:
     Eigen::Map<Eigen::Vector3d> bg;
     double& bb; // bias for barometer measurements
     double& ref; // reference global altitude of NED frame
+#ifdef RELATIVE
+    Eigen::Map<Eigen::Vector3d> qREL; // quaternion from NED to RELATIVE frame
+#endif
 
     ErrorState();
     ErrorState(const ErrorState& obj);
@@ -81,9 +90,16 @@ public:
       BG = 14,
       BB = 17,
       REF = 18,
+#ifdef RELATIVE
+      QREL = 19,
+      NX = 22,
+      A = 23,
+      W = 26,
+#else
+      NX = 18, // number of states
       A = 19,
       W = 22,
-      NX = 18, // number of states
+#endif
       SIZE = 1 + NX + 6
   };
   Eigen::Matrix<double, SIZE, 1> arr;
@@ -101,6 +117,9 @@ public:
   Eigen::Map<Eigen::Vector3d> bg;
   double& bb; // barometer pressure bias
   double& ref; // reference global altitude of NED frame
+#ifdef RELATIVE
+  quat::Quatd qREL;
+#endif
 
   State();
   State(const State& other);
@@ -111,6 +130,9 @@ public:
       State x;
       x.arr.setRandom();
       x.x = xform::Xformd::Random();
+#ifdef RELATIVE
+      x.qREL = quat::Quatd::Random();
+#endif
       return x;
   }
 
@@ -121,6 +143,9 @@ public:
       out.v.setZero();
       out.ba.setZero();
       out.bg.setZero();
+#ifdef RELATIVE
+      out.qREL = quat::Quatd::Identity();
+#endif
       return out;
   }
 

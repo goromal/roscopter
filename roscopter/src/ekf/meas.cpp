@@ -13,36 +13,43 @@ Base::Base()
 
 std::string Base::Type() const
 {
+    std::string type_str;
     switch (type)
     {
     case BASE:
-        return "Base";
+        type_str = "Base";
         break;
     case GNSS:
-        return "Gnss";
+        type_str = "Gnss";
         break;
     case IMU:
-        return "Imu";
+        type_str = "Imu";
         break;
     case BARO:
-        return "Baro";
+        type_str = "Baro";
         break;
     case RANGE:
-        return "Range";
+        type_str = "Range";
         break;
     case MOCAP:
-        return "Mocap";
+        type_str = "Mocap";
         break;
     case ZERO_VEL:
-        return "ZeroVel";
+        type_str = "ZeroVel";
         break;
     case POS:
-        return "Pos";
+        type_str = "Pos";
         break;
     case VEL:
-        return "Vel";
+        type_str = "Vel";
         break;
+#ifdef RELATIVE
+    case REL_HEADING:
+        type_str = "RelHeading";
+        break;
+#endif
     }
+    return type_str;
 }
 
 bool basecmp(const Base* a, const Base* b)
@@ -92,6 +99,19 @@ Range::Range(double _t, const double &_z, const double &_R)
     R(0) = _R;
     type = RANGE;
 }
+
+#ifdef RELATIVE
+RelativeHeading::RelativeHeading(double _t, const double& _z, const double& _R)
+{
+    t = _t;
+    z(0) = _z;
+    Eigen::Vector3d Rdiag;
+    Rdiag << 0.001, 0.001, R;
+    R = Rdiag.asDiagonal();
+    R(0) = _R;
+    type = REL_HEADING;
+}
+#endif
 
 Gnss::Gnss(double _t, const Vector6d& _z, const Matrix6d& _R) :
     p(z.data()),

@@ -63,12 +63,18 @@ void EKF_ROS::initROS()
   euler_pub_ = nh_.advertise<geometry_msgs::Vector3Stamped>("euler_degrees", 1);
   imu_bias_pub_ = nh_.advertise<sensor_msgs::Imu>("imu_bias", 1);
   is_flying_pub_ = nh_.advertise<std_msgs::Bool>("is_flying", 1);
+#ifdef RELATIVE
+  NED2REL_pub_ = nh_.advertise<geometry_msgs::QuaternionStamped>("q_NED_REL", 1);
+#endif
 
   imu_sub_ = nh_.subscribe("imu", 100, &EKF_ROS::imuCallback, this);
   baro_sub_ = nh_.subscribe("baro", 100, &EKF_ROS::baroCallback, this);
   pose_sub_ = nh_.subscribe("pose", 10, &EKF_ROS::poseCallback, this);
-  pos_sub_  = nh_.subscribe("pos", 10, &EKF_ROS::posCallback, this);
-  vel_sub_  = nh_.subscribe("vel", 10, &EKF_ROS::velCallback, this);
+#ifdef RELATIVE
+  pos_sub_  = nh_.subscribe("pos", 10, &EKF_ROS::relNEDCallback, this);
+  rel_heading_sub_ = nh_.subscribe("relative_heading", 1, &EKF_ROS::relHeadingCallback, this);
+#endif
+  vel_sub_  = nh_.subscribe("vel", 10, &EKF_ROS::velNEDCallback, this);
   odom_sub_ = nh_.subscribe("reference", 10, &EKF_ROS::odomCallback, this);
   gnss_sub_ = nh_.subscribe("gnss", 10, &EKF_ROS::gnssCallback, this);
 
@@ -131,6 +137,13 @@ void EKF_ROS::init(const std::string& param_file, const std::string& frame_file,
     get_yaml_node("gps_vertical_stdev", param_file, gps_vertical_stdev_);
     get_yaml_node("gps_speed_stdev", param_file, gps_speed_stdev_);
   }
+#ifdef RELATIVE
+  get_yaml_node("manual_relative_heading_noise", param_file, manual_heading_noise_);
+  if (manual_heading_noise_)
+  {
+      get_yaml_node("relative_heading_stdev", param_file, heading_R_);
+  }
+#endif
 
   start_time_.fromSec(0.0);
 }
@@ -181,6 +194,16 @@ void EKF_ROS::publishEstimates(const sensor_msgs::ImuConstPtr &msg)
   imu_bias_msg_.linear_acceleration.z = state_est.ba(2);
 
   imu_bias_pub_.publish(imu_bias_msg_);
+
+#ifdef RELATIVE
+  // Pub Rotation from NED to Relative Frame estimate
+  NED2REL_msg_.header.stamp = ros::Time::now();
+  NED2REL_msg_.quaternion.w = state_est.qREL.w();
+  NED2REL_msg_.quaternion.x = state_est.qREL.x();
+  NED2REL_msg_.quaternion.y = state_est.qREL.y();
+  NED2REL_msg_.quaternion.z = state_est.qREL.z();
+  NED2REL_pub_.publish(NED2REL_msg_);
+#endif
 
   // Only publish is_flying is true once
   if (!is_flying_)
@@ -266,7 +289,8 @@ void EKF_ROS::poseCallback(const geometry_msgs::PoseStampedConstPtr &msg)
   mocapCallback(msg->header.stamp, z);
 }
 
-void EKF_ROS::posCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg)
+#ifdef RELATIVE
+void EKF_ROS::relNEDCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr &msg)
 {
     if (start_time_.sec == 0)
       return;
@@ -282,10 +306,26 @@ void EKF_ROS::posCallback(const geometry_msgs::PoseWithCovarianceStampedConstPtr
         double z_pos_stdev = msg->pose.covariance[2];
         pos_R_ = Eigen::DiagonalMatrix<double, 3>(x_pos_stdev*x_pos_stdev, y_pos_stdev*y_pos_stdev, z_pos_stdev*z_pos_stdev);
     }
-    ekf_.posCallback(t, z, pos_R_);
+    ekf_.relPosCallback(t, z, pos_R_);
 }
 
-void EKF_ROS::velCallback(const geometry_msgs::TwistWithCovarianceStampedConstPtr &msg)
+void EKF_ROS::relHeadingCallback(const std_msgs::Float64MultiArrayConstPtr &msg)
+{
+    if (start_time_.sec == 0)
+      return;
+
+    double z = msg->data[0];
+
+    const double t = (ros::Time::now() - start_time_).toSec();
+    if (!manual_heading_noise_)
+    {
+        heading_R_ = msg->data[1];
+    }
+    ekf_.relHeadingCallback(t, z, heading_R_);
+}
+#endif
+
+void EKF_ROS::velNEDCallback(const geometry_msgs::TwistWithCovarianceStampedConstPtr &msg)
 {
     if (start_time_.sec == 0)
         return;
@@ -299,7 +339,7 @@ void EKF_ROS::velCallback(const geometry_msgs::TwistWithCovarianceStampedConstPt
         double vel_stdev = msg->twist.covariance[0];
         vel_R_ = vel_stdev * vel_stdev * I_3x3;
     }
-    ekf_.velCallback(t, z, vel_R_);
+    ekf_.velNEDCallback(t, z, vel_R_);
 }
 
 void EKF_ROS::odomCallback(const nav_msgs::OdometryConstPtr &msg)

@@ -89,15 +89,19 @@ public:
   void rangeCallback(const double& t, const double& z, const double& R);
   void gnssCallback(const double& t, const Vector6d& z, const Matrix6d& R);
   void mocapCallback(const double& t, const xform::Xformd& z, const Matrix6d& R);
-  void posCallback(const double& t, const Eigen::Vector3d& z, const Eigen::Matrix3d& R);
-  void velCallback(const double& t, const Eigen::Vector3d& z, const Eigen::Matrix3d& R);
+  void velNEDCallback(const double& t, const Eigen::Vector3d& z, const Eigen::Matrix3d& R);
+#ifdef RELATIVE
+  void relPosCallback(const double& t, const Eigen::Vector3d& z, const Eigen::Matrix3d& R);
+  void relHeadingCallback(const double& t, const double& z, const double& R);
 
+  void relHeadingUpdate(const meas::RelativeHeading &z);
+  void relPosUpdate(const meas::Pos &z);
+#endif
   void baroUpdate(const meas::Baro &z);
   void rangeUpdate(const meas::Range &z);
   void gnssUpdate(const meas::Gnss &z);
   void mocapUpdate(const meas::Mocap &z);
-  void posUpdate(const meas::Pos &z);
-  void velUpdate(const meas::Vel &z);
+  void velNEDUpdate(const meas::Vel &z);
   void zeroVelUpdate(double t);
 
   void setRefLla(Eigen::Vector3d ref_lla);
@@ -120,6 +124,9 @@ public:
     LOG_REF,
     LOG_REL_POS,
     LOG_REL_VEL,
+#ifdef RELATIVE
+    LOG_REL_HEADING,
+#endif
     NUM_LOGS
   };
   std::vector<std::string> log_names_ {
@@ -134,7 +141,12 @@ public:
     "lla",
     "ref",
     "rel_pos",
+#ifdef RELATIVE
+    "rel_vel",
+    "rel_heading"
+#else
     "rel_vel"
+#endif
   };
   bool enable_log_;
   std::vector<Logger*> logs_;
@@ -183,6 +195,9 @@ public:
   bool use_gnss_;
   bool use_pos_;
   bool use_vel_;
+#ifdef RELATIVE
+  bool use_rel_head_;
+#endif
   bool use_zero_vel_;
   bool enable_out_of_order_;
   bool enable_partial_update_;

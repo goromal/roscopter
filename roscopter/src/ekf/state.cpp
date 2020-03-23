@@ -17,7 +17,12 @@ ErrorState::ErrorState() :
     ba(arr.data()+9),
     bg(arr.data()+12),
     bb(*(arr.data()+15)),
+#ifdef RELATIVE
+    ref(*(arr.data()+16)),
+    qREL(arr.data()+17)
+#else
     ref(*(arr.data()+16))
+#endif
 {
     arr.setConstant(NAN);
 }
@@ -70,7 +75,7 @@ ErrorState ErrorState::operator+ (const Matrix<double, SIZE, 1>& v) const
 
 ErrorState& ErrorState::operator+= (const Matrix<double, SIZE, 1>& v)
 {
-    arr += arr;
+    arr += v;
     return *this;
 }
 
@@ -95,7 +100,7 @@ ErrorState ErrorState::operator- (const Matrix<double, SIZE, 1>& v) const
 
 ErrorState& ErrorState::operator-= (const Matrix<double, SIZE, 1>& v)
 {
-    arr -= arr;
+    arr -= v;
     return *this;
 }
 
@@ -115,6 +120,9 @@ State::State() :
     bg(arr.data()+14),
     bb(*(arr.data()+17)),
     ref(*(arr.data()+18)),
+#ifdef RELATIVE
+    qREL(arr.data()+19),
+#endif
     imu(arr.data()+1+NX),
     a(arr.data()+1+NX),
     w(arr.data()+1+NX+3)
@@ -147,6 +155,9 @@ State State::operator+(const ErrorState& dx) const
     xp.bg = bg + dx.bg;
     xp.bb = bb + dx.bb;
     xp.ref = ref + dx.ref;
+#ifdef RELATIVE
+    xp.qREL = qREL + dx.qREL;
+#endif
     return xp;
 }
 
@@ -160,6 +171,9 @@ State State::operator+(const Matrix<double, ErrorState::SIZE, 1>& dx) const
     xp.bg = bg + dx.segment<3>(ErrorState::DBG);
     xp.bb = bb + dx(ErrorState::DBB);
     xp.ref = ref + dx(ErrorState::DREF);
+#ifdef RELATIVE
+    xp.qREL = qREL + dx.segment<3>(ErrorState::DQREL);
+#endif
     return xp;
 }
 
@@ -172,6 +186,9 @@ State& State::operator+=(const VectorXd& dx)
     bg += dx.segment<3>(ErrorState::DBG);
     bb += dx(ErrorState::DBB);
     ref += dx(ErrorState::DREF);
+#ifdef RELATIVE
+    qREL += dx.segment<3>(ErrorState::DQREL);
+#endif
 
     return *this;
 }
@@ -185,6 +202,9 @@ State& State::operator+=(const ErrorState& dx)
     bg = bg + dx.bg;
     bb = bb + dx.bb;
     ref = ref + dx.ref;
+#ifdef RELATIVE
+    qREL = qREL + dx.qREL;
+#endif
 
     return *this;
 }
@@ -199,6 +219,10 @@ ErrorState State:: operator-(const State& dx) const
     del.bg = bg - dx.bg;
     del.bb = bb - dx.bb;
     del.ref = ref - dx.ref;
+#ifdef RELATIVE
+    del.qREL = qREL - dx.qREL;
+#endif
+
     return del;
 }
 

@@ -91,11 +91,10 @@ void Controller::stateCallback(const nav_msgs::OdometryConstPtr &msg)
   xhat_.q = msg->twist.twist.angular.y;
   xhat_.r = msg->twist.twist.angular.z;
 
-  if(/*is_flying_ &&*/ armed_ && received_cmd_) // probably guards against the (throttle on ground) thing...
+  if(/*is_flying_ && */armed_ && received_cmd_) // probably guards against the (throttle on ground) thing...
   {
     ROS_WARN_ONCE("CONTROLLER ACTIVE");
     computeControl(dt);
-//    std::cout << "CASE 2" << std::endl;
     publishCommand();
   }
   else
